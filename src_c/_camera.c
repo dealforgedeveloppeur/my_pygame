@@ -1757,7 +1757,7 @@ camera_init(pgCameraObject *self, PyObject *arg, PyObject *kwargs)
 }
 
 PyTypeObject pgCamera_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0).tp_name = "pygame.camera.Camera",
+    PyVarObject_HEAD_INIT(NULL, 0).tp_name = "my_pygame.camera.Camera",
     .tp_basicsize = sizeof(pgCameraObject),
     .tp_dealloc = camera_dealloc,
     .tp_doc = DOC_PYGAMECAMERACAMERA,

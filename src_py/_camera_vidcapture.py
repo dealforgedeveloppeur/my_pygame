@@ -1,118 +1,41 @@
-"""pygame.camera.Camera implementation using the videocapture module for windows.
-
-http://videocapture.sourceforge.net/
-
-Binary windows wheels:
-  https://www.lfd.uci.edu/~gohlke/pythonlibs/#videocapture
-"""
-
 import pygame
-
+import cv2
+import cv2_enumerate_cameras
 
 def list_cameras():
-    """Always only lists one camera.
-
-    Functionality not supported in videocapture module.
-    """
-    return [0]
-
-    # this just cycles through all the cameras trying to open them
-    # cameras = []
-    # for x in range(256):
-    #    try:
-    #        c = Camera(x)
-    #    except:
-    #        break
-    #    cameras.append(x)
-    # return cameras
-
-
-def init():
-    global vidcap
-    try:
-        import vidcap as vc
-    except ImportError:
-        from VideoCapture import vidcap as vc
-    vidcap = vc
-
-
-def quit():
-    global vidcap
-    vidcap = None
-
+    return [cam.index for cam in cv2_enumerate_cameras.enumerate_cameras()]
 
 class Camera:
-    # pylint: disable=unused-argument
     def __init__(self, device=0, size=(640, 480), mode="RGB", show_video_window=0):
-        """device:  VideoCapture enumerates the available video capture devices
-                 on your system.  If you have more than one device, specify
-                 the desired one here.  The device number starts from 0.
-
-        show_video_window: 0 ... do not display a video window (the default)
-                           1 ... display a video window
-
-                         Mainly used for debugging, since the video window
-                         can not be closed or moved around.
-        """
-        self.dev = vidcap.new_Dev(device, show_video_window)
-        width, height = size
-        self.dev.setresolution(width, height)
-
-    def display_capture_filter_properties(self):
-        """Displays a dialog containing the property page of the capture filter.
-
-        For VfW drivers you may find the option to select the resolution most
-        likely here.
-        """
-        self.dev.displaycapturefilterproperties()
-
-    def display_capture_pin_properties(self):
-        """Displays a dialog containing the property page of the capture pin.
-
-        For WDM drivers you may find the option to select the resolution most
-        likely here.
-        """
-        self.dev.displaycapturepinproperties()
-
-    def set_resolution(self, width, height):
-        """Sets the capture resolution. (without dialog)"""
-        self.dev.setresolution(width, height)
-
-    def get_buffer(self):
-        """Returns a string containing the raw pixel data."""
-        return self.dev.getbuffer()
+        self.device_index = device
+        self.size = size
+        self.cap = None
 
     def start(self):
-        """Not implemented."""
-
-    def set_controls(self, **kwargs):
-        """Not implemented."""
+        self.cap = cv2.VideoCapture(self.device_index)
+        if self.cap.isOpened():
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.size[0])
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.size[1])
 
     def stop(self):
-        """Not implemented."""
-
-    def get_image(self, dest_surf=None):
-        """ """
-        return self.get_surface(dest_surf)
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
+        self.cap = None
 
     def get_surface(self, dest_surf=None):
-        """Returns a pygame Surface."""
-        abuffer, width, height = self.get_buffer()
-        if not abuffer:
-            return None
-        surf = pygame.image.frombuffer(abuffer, (width, height), "BGR")
-        surf = pygame.transform.flip(surf, 0, 1)
-        # if there is a destination surface given, we blit onto that.
+        if not self.cap or not self.cap.isOpened():
+            return dest_surf
+        ret, frame = self.cap.read()
+        if not ret:
+            return dest_surf
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame = cv2.transpose(frame)
+        surf = pygame.surfarray.make_surface(frame)
         if dest_surf:
             dest_surf.blit(surf, (0, 0))
         else:
             dest_surf = surf
         return dest_surf
 
-
-if __name__ == "__main__":
-    import pygame.examples.camera
-
-    pygame.camera.Camera = Camera
-    pygame.camera.list_cameras = list_cameras
-    pygame.examples.camera.main()
+    def get_image(self, dest_surf=None):
+        return self.get_surface(dest_surf)

@@ -3,217 +3,173 @@ import platform
 import sys
 import warnings
 from abc import ABC, abstractmethod
+from typing import List, Optional, Type
+from pygame import error as PygameError
 
-from pygame import error
-
-_is_init = False
-
+class CameraNotInitializedError(PygameError):
+    def __init__(self, message="pygame.camera is not initialized"):
+        super().__init__(message)
 
 class AbstractCamera(ABC):
-    # set_controls and get_controls are not a part of the AbstractCamera ABC,
-    # because implementations of the same can vary across different Camera
-    # types
     @abstractmethod
     def __init__(self, *args, **kwargs):
-        """ """
+        pass
 
     @abstractmethod
-    def start(self):
-        """ """
+    def start(self) -> None:
+        pass
 
     @abstractmethod
-    def stop(self):
-        """ """
+    def stop(self) -> None:
+        pass
 
     @abstractmethod
-    def get_size(self):
-        """ """
+    def get_size(self) -> tuple:
+        pass
 
     @abstractmethod
-    def query_image(self):
-        """ """
+    def query_image(self) -> bool:
+        pass
 
     @abstractmethod
     def get_image(self, dest_surf=None):
-        """ """
+        pass
 
     @abstractmethod
-    def get_raw(self):
-        """ """
+    def get_raw(self) -> bytes:
+        pass
 
-
-def _pre_init_placeholder():
-    if not _is_init:
-        raise error("pygame.camera is not initialized")
-
-    # camera was init, and yet functions are not monkey patched. This should
-    # not happen
-    raise NotImplementedError()
-
-
-def _pre_init_placeholder_varargs(*_, **__):
-    _pre_init_placeholder()
-
-
-class _PreInitPlaceholderCamera(AbstractCamera):
-    __init__ = _pre_init_placeholder_varargs
-    start = _pre_init_placeholder_varargs
-    stop = _pre_init_placeholder_varargs
-    get_controls = _pre_init_placeholder_varargs
-    set_controls = _pre_init_placeholder_varargs
-    get_size = _pre_init_placeholder_varargs
-    query_image = _pre_init_placeholder_varargs
-    get_image = _pre_init_placeholder_varargs
-    get_raw = _pre_init_placeholder_varargs
-
-
-list_cameras = _pre_init_placeholder
-Camera = _PreInitPlaceholderCamera
-
-
-def _colorspace_not_available(*args):
+def _colorspace_not_available(*args, **kwargs):
     raise RuntimeError("pygame is not built with colorspace support")
-
 
 try:
     from pygame import _camera
-
     colorspace = _camera.colorspace
 except ImportError:
-    # Should not happen in most cases
     colorspace = _colorspace_not_available
 
+class CameraFactory:
+    _is_initialized: bool = False
+    _selected_backend: Optional[str] = None
+    _camera_class_mapping: dict = {}
 
-def _setup_backend(backend):
-    global list_cameras, Camera
-    if backend == "opencv-mac":
-        from pygame import _camera_opencv
-
-        list_cameras = _camera_opencv.list_cameras_darwin
-        Camera = _camera_opencv.CameraMac
-
-    elif backend == "opencv":
-        from pygame import _camera_opencv
-
-        list_cameras = _camera_opencv.list_cameras
-        Camera = _camera_opencv.Camera
-
-    elif backend in ("_camera (msmf)", "_camera (v4l2)"):
-        from pygame import _camera
-
-        list_cameras = _camera.list_cameras
-        Camera = _camera.Camera
-
-    elif backend == "videocapture":
-        from pygame import _camera_vidcapture
-
-        warnings.warn(
-            "The VideoCapture backend is not recommended and may be removed."
-            "For Python3 and Windows 8+, there is now a native Windows "
-            "backend built into pygame.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        _camera_vidcapture.init()
-        list_cameras = _camera_vidcapture.list_cameras
-        Camera = _camera_vidcapture.Camera
-    else:
-        raise ValueError("unrecognized backend name")
-
-
-def get_backends():
-    possible_backends = []
-
-    if sys.platform == "win32":
-        version_code = platform.win32_ver()[0].split(".")[0]
-        if "Server" in version_code:
-            version_code = ''.join(filter(str.isdigit, version_code))[:4]
-            minimum_satisfied = int(version_code) >= 2012
-        else:
-            minimum_satisfied = int(version_code) >= 8
-
-        if minimum_satisfied:
-            try:
-                # If cv2 is installed, prefer that on windows.
-                import cv2
-
-                possible_backends.append("OpenCV")
-            except ImportError:
-                possible_backends.append("_camera (MSMF)")
-
-    if "linux" in sys.platform:
-        possible_backends.append("_camera (V4L2)")
-
-    if "darwin" in sys.platform:
-        possible_backends.append("OpenCV-Mac")
-
-    if "OpenCV" not in possible_backends:
-        possible_backends.append("OpenCV")
-
-    if sys.platform == "win32":
-        possible_backends.append("VideoCapture")
-
-    # see if we have any user specified defaults in environments.
-    camera_env = os.environ.get("PYGAME_CAMERA", "").lower()
-    if camera_env == "opencv":  # prioritize opencv
-        if "OpenCV" in possible_backends:
+    @classmethod
+    def get_backends(cls) -> List[str]:
+        possible_backends = []
+        if sys.platform == "win32":
+            version_code = platform.win32_ver()[0].split(".")[0]
+            if "Server" in version_code:
+                version_code = ''.join(filter(str.isdigit, version_code))[:4]
+                minimum_satisfied = int(version_code) >= 2012
+            else:
+                minimum_satisfied = int(version_code) >= 8
+            if minimum_satisfied:
+                try:
+                    import cv2
+                    possible_backends.append("OpenCV")
+                except ImportError:
+                    possible_backends.append("_camera (MSMF)")
+        if "linux" in sys.platform:
+            possible_backends.append("_camera (V4L2)")
+        if "darwin" in sys.platform:
+            possible_backends.append("OpenCV-Mac")
+        if "OpenCV" not in possible_backends:
+            possible_backends.append("OpenCV")
+        if sys.platform == "win32":
+            possible_backends.append("VideoCapture")
+        camera_env = os.environ.get("PYGAME_CAMERA", "").lower()
+        if camera_env == "opencv" and "OpenCV" in possible_backends:
             possible_backends.remove("OpenCV")
-        possible_backends = ["OpenCV"] + possible_backends
-
-    if camera_env in ("vidcapture", "videocapture"):  # prioritize vidcapture
-        if "VideoCapture" in possible_backends:
+            possible_backends.insert(0, "OpenCV")
+        elif camera_env in ("vidcapture", "videocapture") and "VideoCapture" in possible_backends:
             possible_backends.remove("VideoCapture")
-        possible_backends = ["VideoCapture"] + possible_backends
+            possible_backends.insert(0, "VideoCapture")
+        return possible_backends
 
-    return possible_backends
-
-
-def init(backend=None):
-    global _is_init
-    # select the camera module to import here.
-
-    backends = [b.lower() for b in get_backends()]
-    if not backends:
-        raise error("No camera backends are supported on your platform!")
-
-    backend = backends[0] if backend is None else backend.lower()
-    if backend not in backends:
-        warnings.warn(
-            "We don't think this is a supported backend on this system, "
-            "but we'll try it...",
-            Warning,
-            stacklevel=2,
-        )
-
-    try:
-        _setup_backend(backend)
-    except ImportError:
-        emsg = f"Backend '{backend}' is not supported on your platform!"
-        if backend in ("opencv", "opencv-mac", "videocapture"):
-            dep = "vidcap" if backend == "videocapture" else "OpenCV"
-            emsg += (
-                f" Make sure you have '{dep}' installed to be able to use this backend"
+    @classmethod
+    def initialize(cls, backend_name: Optional[str] = None) -> None:
+        supported_backends = [b.lower() for b in cls.get_backends()]
+        if not supported_backends:
+            raise PygameError("No camera backends are supported on your platform!")
+        chosen_backend = supported_backends[0] if backend_name is None else backend_name.lower()
+        if chosen_backend not in supported_backends:
+            warnings.warn(
+                f"We don't think '{chosen_backend}' is a supported backend on this system, but we'll try it...",
+                Warning,
+                stacklevel=2,
             )
+        try:
+            cls._load_backend_classes(chosen_backend)
+            cls._selected_backend = chosen_backend
+            cls._is_initialized = True
+        except ImportError:
+            emsg = f"Backend '{chosen_backend}' is not supported on your platform!"
+            if chosen_backend in ("opencv", "opencv-mac", "videocapture"):
+                dep = "vidcap" if chosen_backend == "videocapture" else "OpenCV"
+                emsg += f" Make sure you have '{dep}' installed to be able to use this backend"
+            raise PygameError(emsg)
 
-        raise error(emsg)
+    @classmethod
+    def _load_backend_classes(cls, backend: str) -> None:
+        if backend == "opencv-mac":
+            from pygame import _camera_opencv
+            cls._camera_class_mapping["list_cameras"] = _camera_opencv.list_cameras_darwin
+            cls._camera_class_mapping["Camera"] = _camera_opencv.CameraMac
 
-    _is_init = True
+        elif backend == "opencv":
+            from pygame import _camera_opencv
+            cls._camera_class_mapping["list_cameras"] = _camera_opencv.list_cameras
+            cls._camera_class_mapping["Camera"] = _camera_opencv.Camera
 
+        elif backend in ("_camera (msmf)", "_camera (v4l2)"):
+            from pygame import _camera
+            cls._camera_class_mapping["list_cameras"] = _camera.list_cameras
+            cls._camera_class_mapping["Camera"] = _camera.Camera
 
-def quit():
-    global _is_init, Camera, list_cameras
-    # reset to their respective pre-init placeholders
-    list_cameras = _pre_init_placeholder
-    Camera = _PreInitPlaceholderCamera
+        elif backend == "videocapture":
+            from pygame import _camera_vidcapture
+            warnings.warn(
+                "The VideoCapture backend is not recommended and may be removed. "
+                "For Python3 and Windows 8+, there is now a native Windows backend built into pygame.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            _camera_vidcapture.init()
+            cls._camera_class_mapping["list_cameras"] = _camera_vidcapture.list_cameras
+            cls._camera_class_mapping["Camera"] = _camera_vidcapture.Camera
+        else:
+            raise ValueError("unrecognized backend name")
 
-    _is_init = False
+    @classmethod
+    def list_cameras(cls) -> List:
+        if not cls._is_initialized:
+            raise CameraNotInitializedError()
+        return cls._camera_class_mapping["list_cameras"]()
 
+    @classmethod
+    def create_camera(cls, *args, **kwargs) -> AbstractCamera:
+        if not cls._is_initialized:
+            raise CameraNotInitializedError()
+        camera_class: Type[AbstractCamera] = cls._camera_class_mapping["Camera"]
+        return camera_class(*args, **kwargs)
 
-if __name__ == "__main__":
-    # try and use this camera stuff with the pygame camera example.
-    import pygame.examples.camera
+    @classmethod
+    def shutdown(cls) -> None:
+        cls._camera_class_mapping.clear()
+        cls._selected_backend = None
+        cls._is_initialized = False
 
-    # pygame.camera.Camera = Camera
-    # pygame.camera.list_cameras = list_cameras
-    pygame.examples.camera.main()
+def init(backend: Optional[str] = None) -> None:
+    CameraFactory.initialize(backend)
+
+def quit() -> None:
+    CameraFactory.shutdown()
+
+def list_cameras() -> List:
+    return CameraFactory.list_cameras()
+
+def Camera(*args, **kwargs) -> AbstractCamera:
+    return CameraFactory.create_camera(*args, **kwargs)
+
+def get_backends() -> List[str]:
+    return CameraFactory.get_backends()

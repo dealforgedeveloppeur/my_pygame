@@ -1,6 +1,5 @@
 import os
 import sys
-import glob
 import pathlib
 import platform
 import setuptools
@@ -17,6 +16,7 @@ IS_MSC = sys.platform == "win32" and "MSC" in sys.version
 METADATA = {
     "name": "my_pygame",
     "version": "0.0.1",
+    "description": "Mon fork personnalisé de Pygame",
     "python_requires": ">=3.12",
     "classifiers": [
         "Programming Language :: C",
@@ -29,13 +29,13 @@ METADATA = {
 }
 
 def get_cython_extensions() -> list[Extension]:
-    pyx_pattern = str(BASE_DIR / "src_c" / "cython" / "my_pygame" / "**" / "*.pyx")
-    pyx_files = glob.glob(pyx_pattern, recursive=True)
+    pyx_files = list((BASE_DIR / "src_c").rglob("*.pyx"))
     extensions = []
-    c_include_dir = str(BASE_DIR / "src_c" / "include")
     
-    for pyx in pyx_files:
-        path = pathlib.Path(pyx)
+    c_include_dir = str(BASE_DIR / "src_c" / "include")
+    src_c_dir = str(BASE_DIR / "src_c")
+    
+    for path in pyx_files:
         parts = path.with_suffix("").parts
         if "my_pygame" in parts:
             idx = parts.index("my_pygame")
@@ -46,8 +46,8 @@ def get_cython_extensions() -> list[Extension]:
         extensions.append(
             Extension(
                 name=module_name, 
-                sources=[pyx],
-                include_dirs=[c_include_dir, str(BASE_DIR / "src_c")] # Ajout direct des dossiers include
+                sources=[str(path)],
+                include_dirs=[c_include_dir, src_c_dir]
             )
         )
     return extensions
@@ -82,13 +82,17 @@ class CustomBuildExt(build_ext):
 
 ext_modules = []
 cython_exts = get_cython_extensions()
+
 if cython_exts:
-    from Cython.Build import cythonize
-    ext_modules = cythonize(
-        cython_exts,
-        compiler_directives={"language_level": "3"},
-        quiet=True
-    )
+    try:
+        from Cython.Build import cythonize
+        ext_modules = cythonize(
+            cython_exts,
+            compiler_directives={"language_level": "3"},
+            quiet=True
+        )
+    except ImportError:
+        sys.exit("Cython est requis pour compiler ce projet. Veuillez l'installer.")
 
 setup(
     **METADATA,

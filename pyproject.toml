@@ -20,3 +20,6 @@ classifiers = [
     "Operating System :: Unix",
     "Operating System :: MacOS",
 ]
+
+[tool.setuptools.packages.find]
+where = ["src_py"]

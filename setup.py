@@ -1,5 +1,4 @@
 import os
-import re
 import sys
 import glob
 import pathlib
@@ -7,7 +6,6 @@ import platform
 import setuptools
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
-from setuptools.command.install_headers import install_headers
 
 MIN_PYTHON_VERSION = (3, 12)
 if sys.version_info < MIN_PYTHON_VERSION:
@@ -15,7 +13,6 @@ if sys.version_info < MIN_PYTHON_VERSION:
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 IS_MSC = sys.platform == "win32" and "MSC" in sys.version
-IS_MAC = sys.platform == "darwin"
 
 METADATA = {
     "name": "my_pygame",
@@ -35,6 +32,8 @@ def get_cython_extensions() -> list[Extension]:
     pyx_pattern = str(BASE_DIR / "src_c" / "cython" / "my_pygame" / "**" / "*.pyx")
     pyx_files = glob.glob(pyx_pattern, recursive=True)
     extensions = []
+    c_include_dir = str(BASE_DIR / "src_c" / "include")
+    
     for pyx in pyx_files:
         path = pathlib.Path(pyx)
         parts = path.with_suffix("").parts
@@ -43,7 +42,14 @@ def get_cython_extensions() -> list[Extension]:
             module_name = ".".join(parts[idx:])
         else:
             module_name = path.stem
-        extensions.append(Extension(name=module_name, sources=[pyx]))
+            
+        extensions.append(
+            Extension(
+                name=module_name, 
+                sources=[pyx],
+                include_dirs=[c_include_dir, str(BASE_DIR / "src_c")] # Ajout direct des dossiers include
+            )
+        )
     return extensions
 
 class CustomBuildExt(build_ext):
@@ -74,24 +80,6 @@ class CustomBuildExt(build_ext):
 
         super().build_extensions()
 
-class CustomInstallHeaders(install_headers):
-    def run(self):
-        if not self.distribution.headers:
-            return
-        self.mkpath(self.install_dir)
-        for header in self.distribution.headers:
-            header_path = pathlib.Path(header)
-            if header_path.is_dir():
-                dest_dir = pathlib.Path(self.install_dir) / header_path.name
-                self.mkpath(str(dest_dir))
-                for file in header_path.iterdir():
-                    if file.is_file():
-                        out, _ = self.copy_file(str(file), str(dest_dir))
-                        self.outfiles.append(out)
-            else:
-                out, _ = self.copy_file(str(header_path), self.install_dir)
-                self.outfiles.append(out)
-
 ext_modules = []
 cython_exts = get_cython_extensions()
 if cython_exts:
@@ -102,18 +90,16 @@ if cython_exts:
         quiet=True
     )
 
-headers = [str(file) for file in (BASE_DIR / "src_c").glob("*.h") if file.name != "scale.h"]
-headers.append(str(BASE_DIR / "src_c" / "include"))
-
 setup(
     **METADATA,
     packages=setuptools.find_packages(where="src_py"),
     package_dir={"": "src_py"},
+    package_data={
+        "": ["*.h", "*.pxd"],
+    },
     ext_modules=ext_modules,
-    headers=headers,
     cmdclass={
         "build_ext": CustomBuildExt,
-        "install_headers": CustomInstallHeaders,
     },
     zip_safe=False,
     include_package_data=True,

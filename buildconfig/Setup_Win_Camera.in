@@ -1,1 +1,0 @@
-_camera src_c/_camera.c $(SDL) $(DEBUG)

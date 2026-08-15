@@ -5,21 +5,3 @@ requires = [
     "Cython>=3.0.0"
 ]
 build-backend = "setuptools.build_meta"
-
-[project]
-name = "my_pygame"
-version = "0.0.1"
-description = "Mon fork personnalisé de Pygame"
-readme = "README.md"
-requires-python = ">=3.12"
-classifiers = [
-    "Programming Language :: C",
-    "Programming Language :: Python :: 3",
-    "Operating System :: Microsoft :: Windows",
-    "Operating System :: POSIX",
-    "Operating System :: Unix",
-    "Operating System :: MacOS",
-]
-
-[tool.setuptools.packages.find]
-where = ["src_py"]
